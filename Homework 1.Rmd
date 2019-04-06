@@ -1,0 +1,161 @@
+---
+title: "Homework 1"
+fontsize : 18pt 
+arthor: "Hongbing Luo"
+output: html_document
+
+
+---
+
+```{r message = FALSE, warning = FALSE}
+#install.packages("TeachingDemos")
+#install.packages("plyr")
+#install.packages("dplyr")
+#install.packages("readr")
+#install.packages("ggplot2")
+#install.packages("stringr")
+#install.packages("lubridate")
+#install.packages("tidyr")
+#install.packages("magrittr")
+library(TeachingDemos)
+library(plyr)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(stringr)
+library(lubridate)
+library(tidyr)
+library(magrittr)
+
+
+rod.inspection = read_csv("/users/charlie/downloads/HW1/Rodent_Inspection.csv")
+
+my_name = "Hongbing Luo"
+
+set.seed(char2seed(my_name))
+rod.inspection = sample_frac(rod.inspection, .8)
+rod.inspection = rod.inspection[, sample(1:ncol(rod.inspection))]
+```
+# PART I. Descriptive Statistics and Figures
+
+### a. Rat Sightings Change in the Five Boroughs of NYC 
+```{r message = FALSE, warning = FALSE}
+rod.inspection$Year <- year(mdy_hms(rod.inspection$INSPECTION_DATE))
+rod.inspection$Month <- month(mdy_hms(rod.inspection$INSPECTION_DATE))
+
+month <- month(mdy_hms(rod.inspection$INSPECTION_DATE))
+year <- year(mdy_hms(rod.inspection$INSPECTION_DATE))
+active_date <- data.frame(year, month)
+# put months into a sequence of numbers from 1 to 63
+active_date$sequence <- (year-2011) * 12 + month 
+rod.inspection$Month_sequence <- active_date$sequence
+
+# The months selected are from Jan. 2011 to Mar. 2016, that is 63 months in total.
+rod.inspection %>% group_by(Month_sequence, BOROUGH) %>% filter(Year > 2010, RESULT == "Active Rat Signs") %>% tally() %>% ggplot(aes(x = Month_sequence, y = n, col = BOROUGH)) + geom_line() + labs(title = "Active Rat Signs from 2011 to 2016") + scale_x_continuous(breaks = seq(0, 63, 3))
+```
+
+### b. Sightings Over the Years
+
+The rat problem stayed relatively steady for Staten Island and Queens over the last five years. For the other three boroughs, the signs fluctuated over the years. Bronx has often been the most problematic borough of all. Though fluctuated, it often had more active signs than the other regions. 
+
+### c. Seasonality
+
+There are seasonal trends in rat sightings, and vary from boroughs. For Manhattan, rat problems are the most severe during springs (April). Moreover, it has become more fluctuated recently. Brooklyn's pattern is similar to Manhattan's. Bronx usually has more rat sightings during summers and falls. Queens and Staten Island stay relatively steady over the years.
+
+### d. Efficiency
+```{r message = FALSE, warning = FALSE}
+ins_result_act <- rod.inspection %>% group_by(Month_sequence, BOROUGH) %>% filter(Year > 2010, RESULT == "Active Rat Signs") %>% tally()
+ins_result_total <- rod.inspection %>% group_by(Month_sequence, BOROUGH) %>% filter(Year > 2010) %>% tally()
+ins_result <- merge(ins_result_act, ins_result_total, by = c("Month_sequence", "BOROUGH"))
+names(ins_result) <- c("Months", "Boroughs", "Active Signs", "Total Signs")
+
+ins_result$efficiency <- ins_result$`Active Signs`/ins_result$`Total Signs`
+
+ggplot(ins_result, aes(x = Months, y = efficiency, col = Boroughs)) + geom_line() + labs(title = "Efficiency of the Rat Inspection")
+```
+
+### e. Top 10 Zip Codes
+```{r message = FALSE, warning = FALSE}
+rod.zip <- rod.inspection %>% group_by(Month_sequence, BOROUGH, ZIP_CODE) %>% filter(Year > 2010, RESULT == "Active Rat Signs") %>% tally()
+
+# order the dataframe from the biggest value of active signs to the least and select the top 10
+rod.zip <- rod.zip[order(-rod.zip$n),]
+rod.zip <- rod.zip[c(1:10),]
+
+top_10_zip <- list(rod.zip$ZIP_CODE)
+```
+
+# Part II. The 311 data
+
+### a. Did Rodent Sightings Increase after Sandy?
+```{r message = FALSE, warning = FALSE}
+Sandy.rod <- read_csv("/users/charlie/downloads/HW1/sandyrelated.csv")
+
+Sandy.rod$newdate <- mdy_hm(Sandy.rod$`Created Date`)
+Sandy.rod$date <- date(Sandy.rod$newdate)
+
+
+rod.callin <- Sandy.rod %>% group_by(date) %>% filter(`Complaint Type` == "Rodent") %>% tally()
+names(rod.callin) <- c("Date", "Number of Calls")
+
+ggplot(rod.callin, aes(x = Date, y = `Number of Calls`)) + geom_line() + labs(title = "Calls for Rodent Before and After the Hurricane")
+```
+
+From the graph created above, the data does suggest that Hurricane Sandy led to an increase in the daily numbers of rodent sightings.
+
+### b.Rodent Predictors
+```{r message = FALSE, warning = FALSE}
+complaint_type <- Sandy.rod %>% group_by(`Complaint Type`) %>% tally()
+complaint_type <- complaint_type[order(-complaint_type$n),]
+complaint_type <- complaint_type[c(1:15),]
+rodent_num <- Sandy.rod %>% group_by(`Complaint Type`) %>% filter(`Complaint Type` == "Rodent") %>% tally()
+complaint_type <- rbind(complaint_type,rodent_num)
+
+# Create a dataframe that combines complaint_type and Sandy.rod, joining them with top 15 complaint types
+sum_rod <- merge(complaint_type, Sandy.rod)
+
+final_table <- select(sum_rod, `Complaint Type`, `Incident Zip`) %>% group_by(`Complaint Type`, `Incident Zip`) %>% tally() %>% spread(`Complaint Type`, n)
+final_table[is.na(final_table)] <- 0
+correlation <- cor(final_table)
+# Showing the first three rows of the correlation
+head(correlation, 3)
+```
+
+# Part III. Rodent and Restaurant Inspection
+```{r message = FALSE, warning = FALSE}
+res_inspection <- read_csv("/users/charlie/downloads/HW1/DOHMH_New_York_City_Restaurant_Inspection_Results.csv")
+
+res_inspection$res_month <- month(mdy(res_inspection$`INSPECTION DATE`))
+res_inspection$res_year <- year(mdy(res_inspection$`INSPECTION DATE`))
+
+# Step 1. Get the Logged Values
+rod_violation <- res_inspection %>% group_by(res_month, res_year, ZIPCODE) %>% filter((`VIOLATION CODE` == "04L") |`VIOLATION CODE` == "04K" | `VIOLATION CODE` == "08A") %>% tally()
+names(rod_violation) <- c("month", "year", "zip code", "number of violations")
+rod_violation$log <- log(rod_violation$`number of violations` + 1)
+
+# Step 2. Join Rodent Inspection and New Data Set Together
+rod_ins <- data.frame(rod.inspection$RESULT, rod.inspection$Month, rod.inspection$Year, rod.inspection$ZIP_CODE)
+names(rod_ins) <- c("Result", "month", "year", "zip codes")
+
+joint_ins <- merge(rod_ins, rod_violation, by.x = c("month", "year", "zip codes"), by.y = c("month", "year", "zip code"))
+
+# Step 3. Active Rat Signs or Not
+joint_ins$activity <- ifelse(joint_ins$Result == "Active Rat Signs", 1, 0)
+
+# Step 4. Calculate the Logistic Regression
+ActiveRatSigns <- glm(data = joint_ins, activity ~ log + as.factor(month) + as.factor(year), family = binomial)
+summary(ActiveRatSigns)
+```
+According to the output, there is a significant relationship between the restaurant inspection based measures and whether a rodent inspection yields Active Rat Signs. The p value for this relationship is much smaller than 0.05.
+
+# Part IV Beyond Inspections
+
+Air quality is somewhat related to pest problems. Bad air quality usually leads to severe pest problems. I would like to know if there really is a relation between New York's rat problems and its air quality.
+
+I would collect my data from this website:https://catalog.data.gov/dataset/air-quality-ef520.
+In the file I downloaded, I see among the data, there are boroughs, years of the survey, and the air quality. I think I can use the data to compare with the one in New York Rodent Inspection data sets.
+
+To support my analysis, I would use graphs and regression to show the relation between the number of rodent problems and the number of bad air quality reports over the years.
+
+
+
